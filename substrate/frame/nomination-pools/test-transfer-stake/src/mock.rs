@@ -88,6 +88,7 @@ parameter_types! {
 	pub static BondingDuration: u32 = 3;
 }
 
+#[derive_impl(pallet_staking::config_preludes::TestDefaultConfig)]
 impl pallet_staking::Config for Runtime {
 	type Currency = Balances;
 	type CurrencyBalance = Balance;

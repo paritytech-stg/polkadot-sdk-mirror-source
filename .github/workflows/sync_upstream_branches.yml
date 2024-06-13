@@ -128,13 +128,12 @@ jobs:
               run: |
                 cd /tmp
                 for BRANCH in $(cat branches_created_list.txt); do
-                  COMMIT=$(gh api --method GET --paginate \
-                        -H "Accept: application/vnd.github+json" \
-                        -H "X-GitHub-Api-Version: 2022-11-28" \
-                        -f "sha=$BRANCH" \
-                    repos/$UPSTREAM_REPO/commits \
-                    | jq -r '.[-1].sha')
-                  echo -n "Creating $BRANCH from commit $COMMIT... "
+                  COMMIT=$(gh api --method GET \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "X-GitHub-Api-Version: 2022-11-28" \
+                    /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
+                    | jq -r '.object.sha')
+                  echo -n "Creating $BRANCH pointing to commit $COMMIT... "
                   gh api \
                     --method POST \
                     -H "Accept: application/vnd.github+json" \

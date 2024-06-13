@@ -1,0 +1,184 @@
+name: Sync the repo with the upstream
+on: [workflow_dispatch]
+
+jobs:
+    #job_check_env_context can be a reusable workflow
+    #in the PoC it is used in plain for visibility
+    job_check_env_context:
+        runs-on: ubuntu-latest
+        outputs:
+          workflow_enabled: ${{ steps.workflow_enabled_step.outputs.workflow_enabled }}
+        steps:
+          #producess a warning about the org, where the workflow is located
+          #in order not to hardcode the release GH org name in the workflow
+          #supposed to be org-wide or repo-scoped VARIABLE
+          - name: The workflow location check has not passed
+            id: warning_org
+            if: github.repository_owner != vars.RELEASE_ORG
+            run: |
+              echo ::warning title={Skipping the workflow}::\
+              This workflow will be skipped beacause this run is performed from a non-release GH org
+    
+          #final output of the green light to other workflows
+          - name: The release environment checks have been passed, setting the green light to other jobs
+            id: workflow_enabled_step
+            if: (github.repository_owner == vars.RELEASE_ORG)
+            run: echo "workflow_enabled=true" >> "$GITHUB_OUTPUT"
+
+    #job_sync_branches can be a reusable workflow
+    #in the PoC it is used in plain for visibility
+    job_sync_branches:
+        needs: job_check_env_context
+        if: needs.job_check_env_context.outputs.workflow_enabled == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Generate GitHub token, which can use Upstream Merge API
+              id: gen_app_token_merge
+              uses: actions/create-github-app-token@v1
+              with:
+                  app-id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID }}
+                  private-key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}
+                  owner: ${{ vars.RELEASE_ORG }}
+
+            - name: Identify repos parameters
+              id: get-repo-params
+              env:
+                FORKED_REPO: ${{ github.repository }}
+                GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+              run: |
+                upstream_name=$(gh api repos/$FORKED_REPO  | jq -r ".source.full_name")
+                default_branch=$(gh api repos/$FORKED_REPO | jq -r ".default_branch")
+                echo "Identified upstream name: $upstream_name"
+                echo "Identified default branch: $default_branch"
+                echo "upstream_name=$upstream_name" >> "$GITHUB_OUTPUT"
+                echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
+            
+            #since not all of the branches are supposed to be synced
+            #or/and automatically created, in order not to clone the temporary branch waste;
+            #the exact decision defined by the regex (egrep) variable on the repo
+            - name: Identifying what to do with the branches
+              id: identifying_branches_actions
+              env:
+                GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+                FORKED_REPO: ${{ github.repository }}
+                UPSTREAM_REPO: ${{ steps.get-repo-params.outputs.upstream_name }}
+                BRANCHES_TO_SYNC_EGREP_REGEX: ${{ vars.BRANCHES_TO_SYNC_EGREP_REGEX }}
+                MAIN_BRANCH: ${{ steps.get-repo-params.outputs.default_branch }}
+              run: |
+                cd /tmp
+                  gh api --method GET --paginate \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  /repos/$UPSTREAM_REPO/branches \
+                | jq -r '.[] | .name' | tr [:upper:] [:lower:] | sort > upstream_branches.txt
+
+                gh api --method GET --paginate \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  /repos/$FORKED_REPO/branches \
+                | jq -r '.[] | .name' | tr [:upper:] [:lower:] | sort > fork_branches.txt
+
+                echo $(grep -x -v -f upstream_branches.txt fork_branches.txt > branches_deleted_list.txt)
+                echo $MAIN_BRANCH > branches_synced_list.txt
+                echo $(grep -E "$BRANCHES_TO_SYNC_EGREP_REGEX" upstream_branches.txt | \
+                  grep -v $MAIN_BRANCH >> branches_synced_list.txt)
+                echo $(grep -x -v -f fork_branches.txt branches_synced_list.txt > branches_created_list.txt)
+
+                for f in branches_*_list.txt; do
+                  ACTION=$(echo $f | cut -d '_' -f 2)
+                  echo "Following branches to be $ACTION, $(cat $f | wc -l) in total:"
+                  echo "======"
+                  cat $f
+                  echo "======"
+                  echo ""
+                done
+
+            - name: Sync the Main/Master branch anyway first
+              id: sync_master_brach
+              env:
+                GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+                FORKED_REPO: ${{ github.repository }}
+                MAIN_BRANCH: ${{ steps.get-repo-params.outputs.default_branch }}
+              run: gh repo sync $FORKED_REPO -b $MAIN_BRANCH
+
+            - name: Clean the branches in the fork, missing in the source
+              id: clean_fork_branches
+              env:
+                GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+                FORKED_REPO: ${{ github.repository }}
+                UPSTREAM_REPO: ${{ steps.get-repo-params.outputs.upstream_name }}
+              run: |
+                cd /tmp
+                for BRANCH in $(cat branches_deleted_list.txt); do
+                    echo -n "Deleting $BRANCH... "
+                    gh api \
+                      --method DELETE \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      /repos/$FORKED_REPO/git/refs/heads/$BRANCH
+                    echo "done"
+                done
+            
+            - name: Create missing branches in the fork
+              id: create_missing_fork_branches
+              env:
+                GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+                FORKED_REPO: ${{ github.repository }}
+                UPSTREAM_REPO: ${{ steps.get-repo-params.outputs.upstream_name }}
+              run: |
+                cd /tmp
+                for BRANCH in $(cat branches_created_list.txt); do
+                  COMMIT=$(gh api --method GET --paginate \
+                        -H "Accept: application/vnd.github+json" \
+                        -H "X-GitHub-Api-Version: 2022-11-28" \
+                        -f "sha=$BRANCH" \
+                    repos/$UPSTREAM_REPO/commits \
+                    | jq -r '.[-1].sha')
+                  echo -n "Creating $BRANCH from commit $COMMIT... "
+                  gh api \
+                    --method POST \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "X-GitHub-Api-Version: 2022-11-28" \
+                    /repos/$FORKED_REPO/git/refs \
+                    -f "ref=refs/heads/$BRANCH" \
+                    -f "sha=$COMMIT" > /dev/null
+                  echo "done" 
+                done
+
+            - name: Sync all the branches in the fork (matching REGEX)
+              id: sync_all_fork_branches
+              env:
+                GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+                FORKED_REPO: ${{ github.repository }}
+                UPSTREAM_REPO: ${{ steps.get-repo-params.outputs.upstream_name }}
+              run: |
+                cd /tmp
+                for BRANCH in $(cat branches_synced_list.txt); do
+                  echo "Making $BRANCH up to date..."
+                  gh repo sync $FORKED_REPO -b $BRANCH
+                  UPSTREAM_HEAD=$(gh api --method GET \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "X-GitHub-Api-Version: 2022-11-28" \
+                    /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
+                    | jq -r '.object.sha')
+                  FORK_HEAD=$(gh api --method GET \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "X-GitHub-Api-Version: 2022-11-28" \
+                    /repos/$FORKED_REPO/git/ref/heads/$BRANCH \
+                    | jq -r '.object.sha')
+                  if [[ "$UPSTREAM_HEAD" != "$FORK_HEAD" ]]; then
+                    echo "::warning title={Desynced HEAD on $BRANCH}::\
+                    Mismatch between the HEADs of the upstream and the fork,\
+                    $UPSTREAM_HEAD and $FORK_HEAD respectively. \
+                    The Fork's head will be aligned with the Upstream's. \
+                    It could have happened because the Upstream was updated in a dirty way"
+                    gh api \
+                      --method PATCH \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      /repos/$FORKED_REPO/git/refs/heads/$BRANCH \
+                      -f "sha=$UPSTREAM_HEAD" \
+                      -F "force=true" > /dev/null
+                  fi
+                  echo "done"
+                done

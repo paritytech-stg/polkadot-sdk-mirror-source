@@ -1,0 +1,123 @@
+name: Release workflow example
+on: [workflow_dispatch, push]
+
+#The main purpose of this structure is to check if the 
+#fork and upstream branches have the same state before running the target job.
+#Also, the environmental checks should fail in the non-release ORG locations.
+#without raising a red mark in the logs
+#(alternatively, the workflow file can be disabled manually in every non-release locations)
+
+jobs:
+  #base checks like repo location and the master killswitch
+  #job_check_env_context can be a reusable workflow
+  #in the PoC it is used in plain for visibility
+  job_check_env_context:
+    runs-on: ubuntu-latest
+    outputs:
+      workflow_enabled: ${{ steps.workflow_enabled_step.outputs.workflow_enabled }}
+    steps:
+      #producess a warning about the org, where the workflow is located
+      #in order not to hardcode the release GH org name in the workflow
+      #supposed to be org-wide or repo-scoped VARIABLE
+      - name: The workflow location check has not passed
+        id: warning_org
+        if: github.repository_owner != vars.RELEASE_ORG
+        run: |
+          echo ::warning title={Skipping the workflow}::\
+          This workflow will be skipped beacause this run is performed from a non-release GH org
+
+      #produces a warning about the repo on/off killswitch
+      #this is supposed to be a per repo individual release killswitch. 
+      #'true' means "all the releases for repo are enabled", others mean not
+      #supposed to be a repo-scoped VARIABLE
+      - name: The killswitch check has not passed
+        id: warning_killswitch
+        if: vars.RELEASES_ON != 'true'
+        run: |
+          echo ::warning title={Skipping the workflow}::\
+          This workflow will be skipped beacause the release killswitch for this repo is not set to 'true'
+
+      #final output of the green light to other workflows
+      - name: The release environment checks have been passed, setting the green light to other jobs
+        id: workflow_enabled_step
+        if: (github.repository_owner == vars.RELEASE_ORG && vars.RELEASES_ON == 'true')
+        run: echo "workflow_enabled=true" >> "$GITHUB_OUTPUT"
+  
+  
+  #checks if the calling branch is up to date with the upstream
+  #to avoid undefined behavior
+  #before that, two instructions check (needs and if),
+  #to detect if the job should be run or not at all
+  #steps of this job are separated from the previous job's steps, to fail smoothly
+
+  #job_check_branches_sync can be a reusable workflow
+  #in the PoC it is used in plain for visibility
+
+  job_check_branches_sync:
+    runs-on: ubuntu-latest
+    needs: job_check_env_context
+    if: needs.job_check_env_context.outputs.workflow_enabled == 'true'
+    outputs:
+      branches_synced: ${{ steps.check_if_the_branch_synced.outputs.branches_synced }}
+    steps:
+      - name: Generate GitHub token, which can use Upstream Merge API
+        id: gen_app_token_merge
+        uses: actions/create-github-app-token@v1
+        with:
+            app-id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID }}
+            private-key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}
+            owner: ${{ vars.RELEASE_ORG }}
+      
+      - name: Identify repos parameters
+        id: get_repo_params
+        env:
+          FORKED_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+        run: |
+          upstream_name=$(gh api repos/$FORKED_REPO  | jq -r ".source.full_name")
+          echo "Identified upstream name: $upstream_name"
+          echo "upstream_name=$upstream_name" >> "$GITHUB_OUTPUT"
+
+      - name: Check if the calling branch is synced
+        id: check_if_the_branch_synced
+        env:
+          GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
+          FORKED_REPO: ${{ github.repository }}
+          UPSTREAM_REPO: ${{ steps.get_repo_params.outputs.upstream_name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          UPSTREAM_HEAD=$(gh api --method GET \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
+            | jq -r '.object.sha')
+          FORK_HEAD=$(gh api --method GET \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/$FORKED_REPO/git/ref/heads/$BRANCH \
+            | jq -r '.object.sha')
+          if [[ "$UPSTREAM_HEAD" != "$FORK_HEAD" ]]; then
+            echo "::warning title={Desynced HEAD on $BRANCH}::\
+            Mismatch between the HEADs of the upstream and the fork, \
+            $UPSTREAM_HEAD and $FORK_HEAD respectively. \
+            This job will be skipped."
+            echo "branches_synced=false" >> "$GITHUB_OUTPUT"
+          else 
+            echo "branches_synced=true" >> "$GITHUB_OUTPUT"
+          fi    
+
+  #for example, this can be a release job, which is not supposed to run on the main org,
+  #but must run only on the "release" org with proper sync checks for the branches
+  job_something_that_can_be_skipped_after_all_the_checks:
+    needs: job_check_branches_sync
+    if: needs.job_check_branches_sync.outputs.branches_synced == 'true'
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      REF:  ${{ github.ref }}
+      RUN:  ${{ github.run_id }}
+      SHA:  ${{ github.sha }}
+    steps:
+      - run: |
+          : Ive been run by: REPO: $REPO, REF: $REF, RUN: $RUN, SHA: $SHA
+          echo "I've been run by: REPO: $REPO, REF: $REF, RUN: $RUN, SHA: $SHA"

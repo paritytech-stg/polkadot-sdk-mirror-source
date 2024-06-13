@@ -157,28 +157,29 @@ jobs:
                 for BRANCH in $(cat branches_synced_list.txt); do
                   echo "Making $BRANCH up to date..."
                   gh repo sync $FORKED_REPO -b $BRANCH
-                  UPSTREAM_HEAD=$(gh api --method GET \
+                  UPSTREAM_TIP=$(gh api --method GET \
                     -H "Accept: application/vnd.github+json" \
                     -H "X-GitHub-Api-Version: 2022-11-28" \
                     /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
                     | jq -r '.object.sha')
-                  FORK_HEAD=$(gh api --method GET \
+                  FORK_TIP=$(gh api --method GET \
                     -H "Accept: application/vnd.github+json" \
                     -H "X-GitHub-Api-Version: 2022-11-28" \
                     /repos/$FORKED_REPO/git/ref/heads/$BRANCH \
                     | jq -r '.object.sha')
-                  if [[ "$UPSTREAM_HEAD" != "$FORK_HEAD" ]]; then
-                    echo "::warning title={Desynced HEAD on $BRANCH}::\
-                    Mismatch between the HEADs of the upstream and the fork,\
-                    $UPSTREAM_HEAD and $FORK_HEAD respectively. \
-                    The Fork's head will be aligned with the Upstream's. \
-                    It could have happened because the Upstream was updated in a dirty way"
+                  if [[ "$UPSTREAM_TIP" != "$FORK_TIP" ]]; then
+                    echo "::warning title={Desynced branch tip on $BRANCH}::\
+                    Mismatch between the tips of the upstream and the fork,\
+                    $UPSTREAM_TIP and $FORK_TIP respectively. \
+                    The Fork's tip will be aligned with the Upstream's. \
+                    It could have happened because the Upstream was updated in a dirty way \
+                    via force-push or revert"
                     gh api \
                       --method PATCH \
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
                       /repos/$FORKED_REPO/git/refs/heads/$BRANCH \
-                      -f "sha=$UPSTREAM_HEAD" \
+                      -f "sha=$UPSTREAM_TIP" \
                       -F "force=true" > /dev/null
                   fi
                   echo "done"

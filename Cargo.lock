@@ -7525,7 +7525,7 @@ dependencies = [
  "log",
  "multiaddr",
  "multihash 0.17.0",
- "multistream-select",
+ "multistream-select 0.12.1",
  "once_cell",
  "parking_lot 0.12.1",
  "pin-project",
@@ -8723,6 +8723,20 @@ name = "multistream-select"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8552ab875c1313b97b8d20cb857b9fd63e2d1d6a0a1b53ce9821e575405f27a"
+dependencies = [
+ "bytes",
+ "futures",
+ "log",
+ "pin-project",
+ "smallvec",
+ "unsigned-varint",
+]
+
+[[package]]
+name = "multistream-select"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea0df8e5eec2298a62b326ee4f0d7fe1a6b90a09dfcf9df37b38f947a8c42f19"
 dependencies = [
  "bytes",
  "futures",
@@ -17458,7 +17472,7 @@ dependencies = [
  "litep2p",
  "log",
  "mockall 0.11.4",
- "multistream-select",
+ "multistream-select 0.13.0",
  "once_cell",
  "parity-scale-codec",
  "parking_lot 0.12.1",

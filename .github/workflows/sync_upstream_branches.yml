@@ -1,6 +1,9 @@
 name: Sync the repo with the upstream
 on: [workflow_dispatch]
 
+concurrency:
+  group: ${{ github.workflow }}
+
 jobs:
     job_check_env_context:
         runs-on: ubuntu-latest

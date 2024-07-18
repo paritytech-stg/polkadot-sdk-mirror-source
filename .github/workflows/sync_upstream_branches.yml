@@ -130,13 +130,21 @@ jobs:
                       /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
                     | jq -r '.object.sha')
                   echo -n "Creating branch $BRANCH pointing to commit $UPSTREAM_COMMIT... "
-                  gh api --method POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "X-GitHub-Api-Version: 2022-11-28" \
-                    /repos/$FORKED_REPO/git/refs \
-                    -f "ref=refs/heads/$BRANCH" \
-                    -f "sha=$UPSTREAM_COMMIT" > /dev/null
-                  echo "done" 
+                  STATUS=$(gh api --method POST \
+                            -H "Accept: application/vnd.github+json" \
+                            -H "X-GitHub-Api-Version: 2022-11-28" \
+                            /repos/$FORKED_REPO/git/refs \
+                            -f "ref=refs/heads/$BRANCH" \
+                            -f "sha=$UPSTREAM_COMMIT" 2>/dev/null | jq -r .status)
+                  if [[ $STATUS != "null" ]]; then
+                    echo "NOT done"
+                    echo -n "::warning title=Unable to create a branch::"
+                    echo -n "Unable to create a branch $BRANCH to $UPSTREAM_COMMIT. "
+                    echo -n "Perhaps this commit doesn't exist in the fork yet or "
+                    echo  "the branch already exist?"  
+                  else
+                    echo "done"
+                  fi
                 done
 
             - name: Sync all the branches in the fork that match the sync settings
@@ -185,7 +193,7 @@ jobs:
                 UPSTREAM_REPO: ${{ steps.get-repo-params.outputs.upstream_name }}
               run: |
                 cd /tmp
-                  gh api --method GET --paginate \
+                gh api --method GET --paginate \
                     -H "Accept: application/vnd.github+json" \
                     -H "X-GitHub-Api-Version: 2022-11-28" \
                     /repos/$UPSTREAM_REPO/tags \
@@ -222,7 +230,8 @@ jobs:
                 cd /tmp
                 for COMMIT_TAG in $(cat tags_deleted_list.txt); do
                     TAG_NAME=$(echo $COMMIT_TAG | cut -d '=' -f 2-)
-                    echo -n "Deleting tag $TAG_NAME... "
+                    TAG_SHA=$(echo $COMMIT_TAG | cut -d '=' -f 1)
+                    echo -n "Deleting tag $TAG_NAME ($TAG_SHA)... "
                     gh api --method DELETE \
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -243,16 +252,17 @@ jobs:
                   TAG_SHA=$(echo $COMMIT_TAG | cut -d '=' -f 1)
                   echo -n "Creating tag $TAG_NAME pointing to commit $TAG_SHA... "
                   STATUS=$(gh api --method POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "X-GitHub-Api-Version: 2022-11-28" \
-                    /repos/$FORKED_REPO/git/refs \
-                    -f "ref=refs/tags/$TAG_NAME" \
-                    -f "sha=$TAG_SHA" 2>/dev/null | jq -r .status)
-                  if [[ $STATUS != "200" ]]; then
+                            -H "Accept: application/vnd.github+json" \
+                            -H "X-GitHub-Api-Version: 2022-11-28" \
+                            /repos/$FORKED_REPO/git/refs \
+                            -f "ref=refs/tags/$TAG_NAME" \
+                            -f "sha=$TAG_SHA" 2>/dev/null | jq -r .status)
+                  if [[ $STATUS != "null" ]]; then
                     echo "NOT done"
                     echo -n "::warning title=Unable to create a tag::"
                     echo -n "Unable to create a tag $TAG_NAME to $TAG_SHA. "
-                    echo  "Perhaps this commit doesn't exist in the fork yet?" 
+                    echo -n "Perhaps this commit doesn't exist in the fork yet or "
+                    echo  "the tag already exist?"  
                   else
                     echo "done"
                   fi

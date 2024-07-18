@@ -1,57 +1,33 @@
 name: Release workflow example
 on: [workflow_dispatch, push]
 
-#The main purpose of this structure is to check if the 
-#fork and upstream branches have the same state before running the target job.
-#Also, the environmental checks should fail in the non-release ORG locations.
-#without raising a red mark in the logs
-#(alternatively, the workflow file can be disabled manually in every non-release locations)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
 
 jobs:
-  #base checks like repo location and the master killswitch
-  #job_check_env_context can be a reusable workflow
-  #in the PoC it is used in plain for visibility
   job_check_env_context:
     runs-on: ubuntu-latest
     outputs:
       workflow_enabled: ${{ steps.workflow_enabled_step.outputs.workflow_enabled }}
     steps:
-      #producess a warning about the org, where the workflow is located
-      #in order not to hardcode the release GH org name in the workflow
-      #supposed to be org-wide or repo-scoped VARIABLE
       - name: The workflow location check has not passed
         id: warning_org
         if: github.repository_owner != vars.RELEASE_ORG
         run: |
-          echo ::warning title={Skipping the workflow}::\
-          This workflow will be skipped beacause this run is performed from a non-release GH org
+          echo -n "::warning title=Skipping the workflow::"
+          echo "This workflow will be skipped beacause this run is performed from a non-release GH org"
 
-      #produces a warning about the repo on/off killswitch
-      #this is supposed to be a per repo individual release killswitch. 
-      #'true' means "all the releases for repo are enabled", others mean not
-      #supposed to be a repo-scoped VARIABLE
       - name: The killswitch check has not passed
         id: warning_killswitch
         if: vars.RELEASES_ON != 'true'
         run: |
-          echo ::warning title={Skipping the workflow}::\
-          This workflow will be skipped beacause the release killswitch for this repo is not set to 'true'
+          echo -n "::warning title=Skipping the workflow::"
+          echo "This workflow will be skipped beacause the release killswitch for this repo is not set to 'true'"
 
-      #final output of the green light to other workflows
       - name: The release environment checks have been passed, setting the green light to other jobs
         id: workflow_enabled_step
         if: (github.repository_owner == vars.RELEASE_ORG && vars.RELEASES_ON == 'true')
         run: echo "workflow_enabled=true" >> "$GITHUB_OUTPUT"
-  
-  
-  #checks if the calling branch is up to date with the upstream
-  #to avoid undefined behavior
-  #before that, two instructions check (needs and if),
-  #to detect if the job should be run or not at all
-  #steps of this job are separated from the previous job's steps, to fail smoothly
-
-  #job_check_branches_sync can be a reusable workflow
-  #in the PoC it is used in plain for visibility
 
   job_check_branches_sync:
     runs-on: ubuntu-latest
@@ -93,17 +69,15 @@ jobs:
             /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
             | jq -r '.object.sha')
           if [[ "$UPSTREAM_TIP" != "$FORK_REF" ]]; then
-            echo "::warning title={Desynced tips on $BRANCH}::\
-            Mismatch between the tips of the upstream and the fork, \
-            $UPSTREAM_TIP and $FORK_REF respectively. \
-            This job will be skipped."
+            echo -n "::warning title=Desynced tips on $BRANCH::"
+            echo -n "Mismatch between the tips of the upstream and the fork, "
+            echo -n "$UPSTREAM_TIP and $FORK_REF respectively. "
+            echo "This job will be skipped."
             echo "branches_synced=false" >> "$GITHUB_OUTPUT"
           else 
             echo "branches_synced=true" >> "$GITHUB_OUTPUT"
           fi    
 
-  #for example, this can be a release job, which is not supposed to run on the main org,
-  #but must run only on the "release" org with proper sync checks for the branches
   job_something_that_can_be_skipped_after_all_the_checks:
     needs: job_check_branches_sync
     if: needs.job_check_branches_sync.outputs.branches_synced == 'true'

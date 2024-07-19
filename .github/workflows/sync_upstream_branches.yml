@@ -2,7 +2,7 @@ name: Sync the repo with the upstream
 on: [workflow_dispatch]
 
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.repository }}-${{ github.workflow }}
 
 jobs:
     job_check_env_context:

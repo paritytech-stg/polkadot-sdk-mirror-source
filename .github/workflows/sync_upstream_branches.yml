@@ -2,22 +2,6 @@ name: Sync the repo with the upstream
 on: [workflow_dispatch]
 
 jobs:
-    job_generate_token:
-      runs-on: ubuntu-latest
-      outputs: 
-        token: ${{ steps.gen_app_token_merge.outputs.token }}
-      steps:
-        - name: Generate GitHub token, which can use Upstream Merge API
-          id: gen_app_token_merge
-          uses: actions/create-github-app-token@v1
-          with:
-              app-id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID }}
-              private-key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}
-              owner: ${{ vars.RELEASE_ORG }}
-
-    job_sync_branches:
-      needs: job_generate_token
+     job_sync_branches:
       uses: release-poc-org/sync-workflows/.github/workflows/sync-with-upstream.yml@master
-      secrets:
-        upstream_read_token: ${{ github.token }}
-        fork_read_write_token: ${{ needs.job_generate_token.outputs.token }}
+

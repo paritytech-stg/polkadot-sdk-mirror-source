@@ -5,82 +5,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
 
 jobs:
-  job_check_env_context:
-    runs-on: ubuntu-latest
-    outputs:
-      workflow_enabled: ${{ steps.workflow_enabled_step.outputs.workflow_enabled }}
-    steps:
-      - name: The workflow location check has not passed
-        id: warning_org
-        if: github.repository_owner != vars.RELEASE_ORG
-        run: |
-          echo -n "::warning title=Skipping the workflow::"
-          echo "This workflow will be skipped beacause this run is performed from a non-release GH org"
-
-      - name: The killswitch check has not passed
-        id: warning_killswitch
-        if: vars.RELEASES_ON != 'true'
-        run: |
-          echo -n "::warning title=Skipping the workflow::"
-          echo "This workflow will be skipped beacause the release killswitch for this repo is not set to 'true'"
-
-      - name: The release environment checks have been passed, setting the green light to other jobs
-        id: workflow_enabled_step
-        if: (github.repository_owner == vars.RELEASE_ORG && vars.RELEASES_ON == 'true')
-        run: echo "workflow_enabled=true" >> "$GITHUB_OUTPUT"
-
-  job_check_branches_sync:
-    runs-on: ubuntu-latest
-    needs: job_check_env_context
-    if: needs.job_check_env_context.outputs.workflow_enabled == 'true'
-    outputs:
-      branches_synced: ${{ steps.check_if_the_branch_synced.outputs.branches_synced }}
-    steps:
-      - name: Generate GitHub token, which can use Upstream Merge API
-        id: gen_app_token_merge
-        uses: actions/create-github-app-token@v1
-        with:
-            app-id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID }}
-            private-key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}
-            owner: ${{ vars.RELEASE_ORG }}
-      
-      - name: Identify repos parameters
-        id: get_repo_params
-        env:
-          FORKED_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
-        run: |
-          upstream_name=$(gh api repos/$FORKED_REPO  | jq -r ".source.full_name")
-          echo "Identified upstream name: $upstream_name"
-          echo "upstream_name=$upstream_name" >> "$GITHUB_OUTPUT"
-
-      - name: Check if the calling branch is synced
-        id: check_if_the_branch_synced
-        env:
-          GH_TOKEN: ${{ steps.gen_app_token_merge.outputs.token }}
-          FORKED_REPO: ${{ github.repository }}
-          UPSTREAM_REPO: ${{ steps.get_repo_params.outputs.upstream_name }}
-          BRANCH: ${{ github.ref_name }}
-          FORK_REF: ${{ github.sha }} 
-        run: |
-          UPSTREAM_TIP=$(gh api --method GET \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/$UPSTREAM_REPO/git/ref/heads/$BRANCH \
-            | jq -r '.object.sha')
-          if [[ "$UPSTREAM_TIP" != "$FORK_REF" ]]; then
-            echo -n "::warning title=Desynced tips on $BRANCH::"
-            echo -n "Mismatch between the tips of the upstream and the fork, "
-            echo -n "$UPSTREAM_TIP and $FORK_REF respectively. "
-            echo "This job will be skipped."
-            echo "branches_synced=false" >> "$GITHUB_OUTPUT"
-          else 
-            echo "branches_synced=true" >> "$GITHUB_OUTPUT"
-          fi    
+  job_check_workflow_can_run:
+    uses: release-poc-org/sync-workflows/.github/workflows/check-syncronization.yml@master
 
   job_something_that_can_be_skipped_after_all_the_checks:
-    needs: job_check_branches_sync
-    if: needs.job_check_branches_sync.outputs.branches_synced == 'true'
+    needs: job_check_workflow_can_run
+    if: needs.job_check_workflow_can_run.outputs.checks_passed == 'true'
     runs-on: ubuntu-latest
     env:
       REPO: ${{ github.repository }}

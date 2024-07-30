@@ -17,7 +17,7 @@ jobs:
 
     job_sync_branches:
       needs: job_generate_token
-      uses: release-poc-org/sync-workflows/.github/workflows/check-syncronization.yml@master
+      uses: release-poc-org/sync-workflows/.github/workflows/sync-with-upstream.yml@master
       secrets:
         upstream_read_token: ${{ github.token }}
         fork_read_write_token: ${{ needs.job_generate_token.outputs.token }}

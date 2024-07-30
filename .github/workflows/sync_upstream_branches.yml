@@ -1,11 +1,17 @@
 name: Sync the repo with the upstream
 on: [workflow_dispatch]
 
+#jobs:
+#     job_sync_branches:
+#      uses: release-poc-org/sync-workflows/.github/workflows/sync-with-upstream.yml@master
+#      with:
+#        fork_writer_app_id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID}}
+#        fork_owner: ${{ vars.RELEASE_ORG}}
+#      secrets:
+#        fork_writer_app_key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}
+
 jobs:
      job_sync_branches:
+      permissions:
+        contents: write
       uses: release-poc-org/sync-workflows/.github/workflows/sync-with-upstream.yml@master
-      with:
-        fork_writer_app_id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID}}
-        fork_owner: ${{ vars.RELEASE_ORG}}
-      secrets:
-        fork_writer_app_key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}

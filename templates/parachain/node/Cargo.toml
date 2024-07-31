@@ -14,7 +14,7 @@ build = "build.rs"
 # name = "parachain-template-node"
 
 [dependencies]
-clap = { version = "4.5.3", features = ["derive"] }
+clap = { version = "4.5.12", features = ["derive"] }
 log = { workspace = true, default-features = true }
 codec = { package = "parity-scale-codec", version = "3.6.12" }
 serde = { features = ["derive"], workspace = true, default-features = true }

@@ -7,6 +7,7 @@ jobs:
       with:
         fork_writer_app_id: ${{ vars.UPSTREAM_CONTENT_SYNC_APP_ID}}
         fork_owner: ${{ vars.RELEASE_ORG}}
+        delete_non_matching_refs: true
       secrets:
         fork_writer_app_key: ${{ secrets.UPSTREAM_CONTENT_SYNC_APP_KEY }}
 

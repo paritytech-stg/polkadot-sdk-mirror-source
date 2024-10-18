@@ -1,12 +1,9 @@
 name: Release workflow example
 on: [workflow_dispatch, push]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-
 jobs:
   job_check_workflow_can_run:
-    uses: paritytech-release/sync-workflows/.github/workflows/check-syncronization.yml@main
+    uses: paritytech-release/sync-workflows/.github/workflows/check-syncronization.yml@add-environment-parameters
 
   job_something_that_can_be_skipped_after_all_the_checks:
     needs: job_check_workflow_can_run
